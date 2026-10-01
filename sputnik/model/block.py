@@ -38,3 +38,13 @@ class SputnikBlock(nn.Module):
         else:
             h, aux, k = self.mlp(h), None, None
         return x + self.drop(h), aux, k
+
+    def init_state(self, B, device):
+        return self.attn.init_state(B, device)
+
+    def step(self, x, state):
+        a, state = self.attn.step(self.n1(x), state)
+        x = x + self.drop(a)
+        h = self.n2(x)
+        h = self.ffn(h)[0] if self.moe else self.mlp(h)
+        return x + self.drop(h), state

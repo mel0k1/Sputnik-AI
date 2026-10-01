@@ -39,7 +39,7 @@ class SputnikModel(nn.Module):
     def num_params(self):
         return sum(p.numel() for p in self.parameters())
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, targets=None, ignore_index=-100):
         B, T = idx.shape
         x = self.tok(idx) + self.pos(torch.arange(T, device=idx.device))
         x = self.drop(x)
@@ -56,7 +56,21 @@ class SputnikModel(nn.Module):
             info["aux"] = float(aux.detach())
             info["k"] = float(torch.stack(ks).mean())
         if targets is not None:
-            loss = F.cross_entropy(logits.float().view(-1, logits.size(-1)), targets.reshape(-1))
+            loss = F.cross_entropy(logits.float().view(-1, logits.size(-1)),
+                                   targets.reshape(-1), ignore_index=ignore_index)
             if aux is not None:
                 loss = loss + aux
         return logits, loss, info
+
+    def init_state(self, B=1, device="cpu"):
+        return [blk.init_state(B, device) for blk in self.blocks]
+
+    def step(self, idx, pos, states):
+        x = self.tok(idx) + self.pos(pos)
+        x = x.unsqueeze(1)
+        new_states = []
+        for blk, st in zip(self.blocks, states):
+            x, st = blk.step(x, st)
+            new_states.append(st)
+        x = self.norm(x)
+        return self.head(x[:, 0]), new_states

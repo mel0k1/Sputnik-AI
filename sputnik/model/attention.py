@@ -44,3 +44,26 @@ class LinearAttention(nn.Module):
             S = S + kc.transpose(-1, -2) @ vc
             z = z + kc.sum(-2)
         return torch.cat(outs, dim=2)
+
+    def init_state(self, B, device):
+        S = torch.zeros(B, self.h, self.dh, self.dh, device=device)
+        z = torch.zeros(B, self.h, self.dh, device=device)
+        return (S, z)
+
+    def step(self, x, state):
+        S, z = state
+        B = x.shape[0]
+        q, k, v = self.qkv(x).chunk(3, dim=-1)
+        q = q.view(B, self.h, 1, self.dh) * self.dh ** -0.5
+        k = k.view(B, self.h, 1, self.dh)
+        v = v.view(B, self.h, 1, self.dh)
+        q = F.elu(q.float()) + 1
+        k = F.elu(k.float()) + 1
+        v = v.float()
+        sc = (q * k).sum(-1, keepdim=True)
+        num = sc * v + q @ S
+        den = sc + q @ z.unsqueeze(-1)
+        out = num / (den + 1e-6)
+        S = S + k.transpose(-1, -2) @ v
+        z = z + k.sum(-2)
+        return self.out(out.reshape(B, self.h * self.dh)).unsqueeze(1), (S, z)

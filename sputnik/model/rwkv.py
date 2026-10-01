@@ -59,3 +59,23 @@ class RWKVAttention(nn.Module):
         v = self.w_v(x * self.mix_v + xx * (1 - self.mix_v))
         out = wkv_parallel(self.time_decay.float(), self.time_first.float(), k, v)
         return self.w_o(out.to(v.dtype) * r)
+
+    def init_state(self, B, device):
+        z = lambda *s: torch.zeros(B, *s, device=device)
+        return (None, z(self.dim), z(self.dim))
+
+    def step(self, x, state):
+        prev, a, b = state
+        # в параллельном проходе первый токен смешивается сам с собой
+        xx = x if prev is None else prev.unsqueeze(1)
+        r = torch.sigmoid(self.w_r(x * self.mix_r + xx * (1 - self.mix_r)))
+        k = self.w_k(x * self.mix_k + xx * (1 - self.mix_k)).float().clamp(-50, 50).squeeze(1)
+        v = self.w_v(x * self.mix_v + xx * (1 - self.mix_v)).float().squeeze(1)
+        w, u = self.time_decay.float(), self.time_first.float()
+        ew = torch.exp(w)
+        ek = torch.exp(k)
+        euk = torch.exp(u + k)
+        out = (ew * a + ek * v + euk * v) / (ew * b + ek + euk)
+        a = ew * a + ek * v
+        b = ew * b + ek
+        return self.w_o(out.unsqueeze(1).to(x.dtype) * r), (x.squeeze(1), a, b)

@@ -63,3 +63,25 @@ class MambaBlock(nn.Module):
         y = selective_scan(xb, delta, A, Bp, Cp)
         y = y + xb * self.D
         return self.out_proj(y * F.silu(z))
+
+    def init_state(self, B, device):
+        c = torch.zeros(B, self.d_inner, self.conv.kernel_size[0] - 1, device=device)
+        h = torch.zeros(B, self.d_inner, self.state_dim, device=device)
+        return (c, h)
+
+    def step(self, x, state):
+        cbuf, h = state
+        B = x.shape[0]
+        xb_raw, z = self.in_proj(x).squeeze(1).chunk(2, dim=-1)
+        w = self.conv.weight.squeeze(1)
+        conv_out = (cbuf * w[..., :-1].unsqueeze(0)).sum(-1) + w[..., -1] * xb_raw + self.conv.bias
+        cbuf = torch.cat([cbuf[:, :, 1:], xb_raw.unsqueeze(-1)], dim=-1)
+        xb = F.silu(conv_out)
+        dt, Bp, Cp = torch.split(self.x_proj(xb),
+                                 [self.dt_rank, self.state_dim, self.state_dim], dim=-1)
+        delta = F.softplus(self.dt_proj(dt)).clamp(max=self.dt_max)
+        A = -torch.exp(self.A_log.clamp(max=math.log(20.0)))
+        exl = torch.exp(delta.unsqueeze(-1) * A)
+        h = exl * h + (delta * xb).unsqueeze(-1) * Bp.unsqueeze(1)
+        y = (h * Cp.unsqueeze(1)).sum(-1) + xb * self.D
+        return self.out_proj((y * F.silu(z)).unsqueeze(1)), (cbuf, h)
