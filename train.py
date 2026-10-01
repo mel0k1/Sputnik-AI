@@ -48,6 +48,7 @@ def main():
     ap.add_argument("--eval", type=int, default=500)
     ap.add_argument("--save", type=int, default=1000)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--compile", action="store_true")
     ap.add_argument("--dim", type=int, default=0, help="переопределения размера для мелких прогонов")
     ap.add_argument("--n-layer", type=int, default=0)
     ap.add_argument("--n-expert", type=int, default=0)
@@ -62,6 +63,8 @@ def main():
     if args.n_expert:
         cfg.n_expert = args.n_expert
     model = SputnikModel(cfg).to(args.device)
+    if args.compile:
+        model = torch.compile(model)
     print(f"device: {args.device} | параметров: {model.num_params() / 1e6:.1f}M")
 
     decay, no_decay = [], []
@@ -101,10 +104,10 @@ def main():
             rate = toks / max(1e-6, time.time() - t0)
             print(f"step {step} | loss {loss.item():.3f} | k {info['k']:.2f} | "
                   f"lr {lr:.2e} | {rate:.0f} tok/s")
-        if step and step % args.eval == 0:
+        if args.eval and step % args.eval == 0:
             vl = eval_loss(model, val_data, args.batch, args.seq, args.device)
             print(f"step {step} | val loss {vl:.3f}")
-        if (step and step % args.save == 0) or step == args.steps - 1:
+        if (args.save and step and step % args.save == 0) or step == args.steps - 1:
             torch.save({"model": model.state_dict(), "optim": opt.state_dict(),
                         "cfg": asdict(cfg), "step": step}, ckpt_path)
             print(f"step {step} | чекпоинт сохранён: {ckpt_path}")
