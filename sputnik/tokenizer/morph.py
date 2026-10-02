@@ -67,8 +67,12 @@ def pretokenize(text):
     out = []
     last = 0
     for m in TOKEN_RE.finditer(text):
-        if "\n" in text[last:m.start()]:
+        gap = text[last:m.start()]
+        if "\n" in gap:
             out.append("\n")
+        ws = gap.replace("\n", "")
+        if len(ws) > 1:
+            out.append(ws[1:])  # отступ сверх первого пробела (первый уже в BOW)
         tok = m.group()
         if not (tok[0].isalnum() or tok[0] == "_"):
             out.append(tok)  # пунктуация без маркера — клеится к предыдущему слову
