@@ -49,6 +49,7 @@ def main():
     ap.add_argument("--save", type=int, default=1000)
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--compile", action="store_true")
+    ap.add_argument("--bf16", action="store_true", help="автокаст bf16 (на AMX-процах быстрее)")
     ap.add_argument("--dim", type=int, default=0, help="переопределения размера для мелких прогонов")
     ap.add_argument("--n-layer", type=int, default=0)
     ap.add_argument("--n-expert", type=int, default=0)
@@ -94,7 +95,8 @@ def main():
         for g in opt.param_groups:
             g["lr"] = lr
         x, y = get_batch(train_data, args.batch, args.seq, args.device)
-        logits, loss, info = model(x, y)
+        with torch.autocast("cpu", dtype=torch.bfloat16, enabled=args.bf16):
+            logits, loss, info = model(x, y)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)

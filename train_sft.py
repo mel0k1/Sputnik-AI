@@ -44,6 +44,7 @@ def main():
     ap.add_argument("--log", type=int, default=50)
     ap.add_argument("--save", type=int, default=150)
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--bf16", action="store_true", help="автокаст bf16 (на AMX-процах быстрее)")
     args = ap.parse_args()
 
     examples = [json.loads(l) for l in open(args.data, encoding="utf-8")]
@@ -75,7 +76,8 @@ def main():
         for g in opt.param_groups:
             g["lr"] = lr
         x, y = make_batch(examples, args.batch, "cpu")
-        logits, loss, info = model(x, y)
+        with torch.autocast("cpu", dtype=torch.bfloat16, enabled=args.bf16):
+            logits, loss, info = model(x, y)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
